@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Rémi — La Légende de la Clôture</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    background: #1a1410;
+    height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Courier New', monospace;
+    overscroll-behavior: none;
+  }
+  #wrap { text-align: center; }
+  canvas {
+    image-rendering: pixelated;
+    border: 4px solid #2f9e2b;
+    border-radius: 6px;
+    box-shadow: 0 0 40px rgba(245, 196, 0, 0.3);
+    max-width: 96vw; max-height: 92vh;
+    touch-action: none;
+  }
+  #foot { color: #8a7a6a; font-size: 12px; margin-top: 8px; }
+  @media (pointer: coarse) {
+    canvas { max-width: 100vw; max-height: 100vh; border-width: 2px; }
+    #foot { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="960" height="640"></canvas>
+  <div id="foot">ZQSD / WASD / Flèches : bouger — ESPACE : masse — E : parler / planter un piquet — M : musique</div>
+</div>
+<script src="game.js?v=2"></script>
+</body>
+</html>

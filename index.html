@@ -3,37 +3,84 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Rémi — La Légende de la Clôture</title>
+<title>RémiCraft — le bac à sable du poseur de clôture</title>
 <style>
-  html, body {
-    margin: 0; padding: 0;
-    background: #1a1410;
-    height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    font-family: 'Courier New', monospace;
-    overscroll-behavior: none;
-  }
-  #wrap { text-align: center; }
-  canvas {
-    image-rendering: pixelated;
-    border: 4px solid #2f9e2b;
-    border-radius: 6px;
-    box-shadow: 0 0 40px rgba(245, 196, 0, 0.3);
-    max-width: 96vw; max-height: 92vh;
-    touch-action: none;
-  }
-  #foot { color: #8a7a6a; font-size: 12px; margin-top: 8px; }
-  @media (pointer: coarse) {
-    canvas { max-width: 100vw; max-height: 100vh; border-width: 2px; }
-    #foot { display: none; }
-  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000;
+    font-family: 'Courier New', monospace; touch-action: none;
+    -webkit-user-select: none; user-select: none; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* --- viseur --- */
+  #cross { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px;
+    transform: translate(-50%, -50%); pointer-events: none; z-index: 5; }
+  #cross::before, #cross::after { content: ''; position: absolute; background: rgba(255,255,255,0.85); }
+  #cross::before { left: 10px; top: 0; width: 2px; height: 22px; }
+  #cross::after { left: 0; top: 10px; width: 22px; height: 2px; }
+
+  /* --- barre de blocs --- */
+  #hotbar { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%);
+    display: flex; gap: 4px; z-index: 10; }
+  .slot { width: 52px; height: 52px; border: 3px solid rgba(0,0,0,0.6);
+    background: rgba(30,30,30,0.65); border-radius: 6px; position: relative; }
+  .slot.sel { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.6); }
+  .slot canvas { position: absolute; inset: 5px; width: 36px; height: 36px; image-rendering: pixelated; }
+  .slot span { position: absolute; right: 3px; bottom: 1px; color: #ddd; font-size: 10px; }
+
+  /* --- boutons tactiles --- */
+  .tbtn { position: fixed; border-radius: 50%; border: 3px solid rgba(255,255,255,0.7);
+    color: #fff; font-weight: bold; font-family: inherit; z-index: 10;
+    display: none; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent; }
+  body.touch .tbtn { display: flex; }
+  #bJump  { right: 18px;  bottom: 170px; width: 84px; height: 84px; background: rgba(60,120,200,0.55); font-size: 30px; }
+  #bMine  { right: 116px; bottom: 96px;  width: 92px; height: 92px; background: rgba(200,60,60,0.55);  font-size: 34px; }
+  #bBuild { right: 18px;  bottom: 78px;  width: 76px; height: 76px; background: rgba(70,170,70,0.55);  font-size: 28px; }
+
+  /* --- joystick --- */
+  #joy { position: fixed; width: 130px; height: 130px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.5); background: rgba(0,0,0,0.3);
+    z-index: 9; display: none; pointer-events: none; }
+  #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px;
+    border-radius: 50%; background: rgba(245,196,0,0.85); transform: translate(-50%,-50%); }
+  body.touch #joy.show { display: block; }
+
+  /* --- menu --- */
+  #menu { position: fixed; inset: 0; background: rgba(8,12,20,0.88); z-index: 20;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; color: #e8e2d4; padding: 20px; }
+  #menu h1 { font-size: clamp(34px, 8vw, 64px); color: #f5c400;
+    text-shadow: 3px 3px 0 #2f9e2b, 6px 6px 0 rgba(0,0,0,0.5); }
+  #menu h2 { font-size: clamp(13px, 3vw, 18px); color: #8bc53f; margin: 10px 0 30px; font-weight: normal; }
+  #menu button { font-family: inherit; font-size: clamp(16px, 4vw, 22px); font-weight: bold;
+    padding: 14px 34px; margin: 8px; border-radius: 10px; cursor: pointer;
+    border: 3px solid #2f9e2b; background: #f5c400; color: #1a1a1a; }
+  #menu button.sec { background: transparent; color: #cbb89a; border-color: #6a5a48; }
+  #help { margin-top: 26px; font-size: clamp(11px, 2.6vw, 14px); color: #9a8a72; line-height: 1.7; }
+  #menu a { color: #8bc53f; }
+  #pauseHint { position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.5); font-size: 12px; z-index: 6; pointer-events: none; }
 </style>
 </head>
 <body>
-<div id="wrap">
-  <canvas id="game" width="960" height="640"></canvas>
-  <div id="foot">ZQSD / WASD / Flèches : bouger — ESPACE : masse — E : parler / planter un piquet — M : musique</div>
+<canvas id="c"></canvas>
+<div id="cross"></div>
+<div id="pauseHint"></div>
+<div id="hotbar"></div>
+<div id="joy"><div id="knob"></div></div>
+<button class="tbtn" id="bJump">⬆</button>
+<button class="tbtn" id="bMine">⛏</button>
+<button class="tbtn" id="bBuild">🧱</button>
+
+<div id="menu">
+  <h1>RémiCraft</h1>
+  <h2>Le bac à sable officiel* du poseur de clôture — *non officiel, Daniel Moquet signe vos cubes</h2>
+  <button id="play">▶ Jouer</button>
+  <button id="newWorld" class="sec">🌍 Nouveau monde</button>
+  <div id="help"></div>
+  <div style="margin-top:18px"><a href="zelda/index.html">🌿 L’autre jeu : Rémi &amp; la Légende de la Clôture</a></div>
 </div>
-<script src="game.js?v=2"></script>
+
+<script src="craft.js?v=1"></script>
 </body>
 </html>
