@@ -121,6 +121,49 @@ const DANIEL_POS = { screen: '1,1', x: 6, y: 5 };
 const PLAYER_START = { screen: '1,1', x: 12, y: 10 };
 const BOSS_SCREEN = '1,0';
 
+// les clients : un par chantier, avec dialogues et récompense (coeur en plus)
+const CLIENTS = [
+  {
+    id: 'bichon', name: 'Mme Bichon', screen: '0,2', x: 10, y: 11, chantier: 0,
+    habit: '#d66a9f', tete: '#e8e8e8',
+    before: [
+      'Mon pauvre garçon, regardez mon verger ! Les sangliers croquent mes pommes et les taupes retournent ma pelouse...',
+      'Daniel m’a promis sa meilleure équipe. Plantez-moi ces piquets autour des pommiers, je vous prépare une tarte !',
+    ],
+    after: [
+      'Ooooh, quel travail magnifique ! Pas un poil de grillage qui dépasse !',
+      'Tenez, ma fameuse tarte aux pommes. Avec ça, vous aurez un coeur de plus au ventre !',
+    ],
+    thanks: ['Mes pommiers vous remercient, Rémi. Repassez quand vous voulez !'],
+  },
+  {
+    id: 'grelin', name: 'M. Grelin', screen: '2,1', x: 15, y: 7, chantier: 1,
+    habit: '#3f6fb5', tete: '#d9b24a',
+    before: [
+      'Bon sang de bonsoir ! Ces taupes me volent mes carottes sous le nez !',
+      'Si tu m’enclos ce potager proprement, j’ai quelque chose pour toi. Parole de Grelin !',
+    ],
+    after: [
+      'Ça c’est de la clôture ! Droite comme un I, tendue comme un arc !',
+      'Tiens, ma soupe de légumes maison. De quoi te donner un coeur supplémentaire !',
+    ],
+    thanks: ['Mes carottes poussent tranquilles maintenant. Merci Rémi !'],
+  },
+  {
+    id: 'fernand', name: 'Fernand le Pêcheur', screen: '2,2', x: 12, y: 11, chantier: 2,
+    habit: '#2e7d5b', tete: '#556b2f',
+    before: [
+      'Oh, moussaillon... Les ronces du marais envahissent mon ponton, et j’ose plus poser mes cannes.',
+      'Sécurise-moi ce coin avec une bonne clôture et j’te raconterai pas d’salades.',
+    ],
+    after: [
+      'Ah ben ça alors, on dirait du travail de pro ! C’est du Daniel Moquet, ça se voit.',
+      'Tiens, ma matelote d’anguille. Ça requinque son homme : un coeur de plus, garanti !',
+    ],
+    thanks: ['Le marais est redevenu paisible... Bonne route, gamin.'],
+  },
+];
+
 function buildWorld() {
   const maps = {};
   for (let sy = 0; sy < WORLD_H; sy++) {
@@ -140,6 +183,11 @@ function buildWorld() {
               reserved.add((x + dx) + ',' + (y + dy));
         }));
       PICKUPS.filter(p => p[0] === key).forEach(p => reserved.add(p[1] + ',' + p[2]));
+      CLIENTS.filter(c => c.screen === key).forEach(c => {
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++)
+            reserved.add((c.x + dx) + ',' + (c.y + dy));
+      });
       reserved.add(DANIEL_POS.x + ',' + DANIEL_POS.y);
       reserved.add(PLAYER_START.x + ',' + PLAYER_START.y);
 
@@ -206,6 +254,7 @@ function buildWorld() {
         c.holes.forEach(([x, y]) => { if (SOLID.has(g[y][x])) g[y][x] = '.'; }));
       (SPAWNS[key] || []).forEach(([, x, y]) => { if (SOLID.has(g[y][x])) g[y][x] = '.'; });
       PICKUPS.filter(p => p[0] === key).forEach(([, x, y]) => { if (SOLID.has(g[y][x])) g[y][x] = '.'; });
+      CLIENTS.filter(c => c.screen === key).forEach(c => { if (SOLID.has(g[c.y][c.x])) g[c.y][c.x] = '.'; });
       maps[key] = g;
     }
   }
@@ -221,14 +270,51 @@ const game = {
   quest: 0,                // 0 parler à Daniel, 1 chantiers, 2 boss, 3 fini
   chantiersDone: 0,
   bossDefeated: false,
+  bossIntro: false,
+  victoryT: 0,
   takenPickups: new Set(),
   filled: new Set(),       // "chantierId:index" piquets plantés
+  rewards: new Set(),      // récompenses des clients déjà reçues
   time: 0,
   shake: 0,
   toasts: [],
   dialog: null,            // { lines:[], i:0, speaker, onEnd }
   musicOn: true,
+  hasSave: false,
 };
+
+// sauvegarde automatique de la progression
+function save() {
+  try {
+    localStorage.setItem('remi_save', JSON.stringify({
+      quest: game.quest, done: game.chantiersDone,
+      filled: [...game.filled], taken: [...game.takenPickups], rewards: [...game.rewards],
+      bossDefeated: game.bossDefeated, bossIntro: game.bossIntro,
+      maxHp: player.maxHp, piquets: player.piquets,
+      screen: game.screen, x: player.x, y: player.y,
+    }));
+  } catch (e) { /* stockage indisponible */ }
+}
+
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem('remi_save'));
+    if (!d) return false;
+    game.quest = d.quest; game.chantiersDone = d.done;
+    game.filled = new Set(d.filled); game.takenPickups = new Set(d.taken);
+    game.rewards = new Set(d.rewards || []);
+    game.bossDefeated = d.bossDefeated; game.bossIntro = d.bossIntro;
+    game.screen = d.screen;
+    player.maxHp = d.maxHp; player.hp = d.maxHp; player.piquets = d.piquets;
+    player.x = d.x; player.y = d.y;
+    return true;
+  } catch (e) { return false; }
+}
+
+function newGame() {
+  try { localStorage.removeItem('remi_save'); } catch (e) { /* ignore */ }
+  location.reload();
+}
 
 const player = {
   x: PLAYER_START.x * TILE + TILE / 2,
@@ -266,31 +352,96 @@ function beep(freq, dur, type = 'square', vol = 0.06, when = 0) {
   o.start(t); o.stop(t + dur);
 }
 
+function sweep(f0, f1, dur, type = 'sawtooth', vol = 0.1) {
+  if (!actx) return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator();
+  const gn = actx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+  gn.gain.setValueAtTime(vol, t);
+  gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(gn).connect(actx.destination);
+  o.start(t); o.stop(t + dur);
+}
+
 const sfx = {
-  swing: () => { beep(220, 0.08, 'sawtooth', 0.05); beep(180, 0.1, 'sawtooth', 0.04, 0.04); },
-  hit: () => beep(120, 0.12, 'square', 0.08),
+  swing: () => sweep(360, 90, 0.12, 'sawtooth', 0.05),
+  hit: () => { beep(120, 0.12, 'square', 0.08); sweep(500, 100, 0.08, 'square', 0.04); },
   hurt: () => { beep(140, 0.15, 'sawtooth', 0.09); beep(90, 0.2, 'sawtooth', 0.07, 0.08); },
-  plant: () => { beep(300, 0.06, 'square', 0.07); beep(420, 0.08, 'square', 0.06, 0.07); },
+  plant: () => {
+    beep(180, 0.07, 'square', 0.09);            // le coup de masse
+    beep(120, 0.1, 'square', 0.07, 0.06);
+    beep(740, 0.18, 'sawtooth', 0.025, 0.14);   // le grillage qui vibre
+    beep(760, 0.14, 'sawtooth', 0.02, 0.2);
+  },
   pickup: () => { beep(660, 0.07, 'square', 0.05); beep(880, 0.1, 'square', 0.05, 0.07); },
-  kill: () => { beep(330, 0.06, 'triangle', 0.08); beep(165, 0.15, 'triangle', 0.06, 0.05); },
+  kill: () => { beep(330, 0.06, 'triangle', 0.08); sweep(300, 60, 0.2, 'triangle', 0.06); },
   fanfare: () => [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.18, 'square', 0.07, i * 0.13)),
   bigFanfare: () => [392, 523, 659, 784, 659, 784, 1047, 1319].forEach((f, i) => beep(f, 0.2, 'square', 0.07, i * 0.15)),
   denied: () => beep(110, 0.2, 'sawtooth', 0.07),
   talk: () => beep(500, 0.04, 'square', 0.04),
+  roar: () => { sweep(220, 50, 0.6, 'sawtooth', 0.12); sweep(160, 40, 0.7, 'square', 0.08); },
 };
 
-// petite boucle musicale champêtre
-const MELODY = [392, 440, 494, 392, 440, 587, 523, 440, 392, 440, 494, 587, 523, 494, 440, 392];
-let melIdx = 0;
-function startMusic() {
-  if (musicTimer) return;
-  musicTimer = setInterval(() => {
-    if (!actx || !game.musicOn || game.state === 'title') return;
-    beep(MELODY[melIdx % MELODY.length] / 2, 0.22, 'triangle', 0.025);
-    if (melIdx % 4 === 0) beep(MELODY[melIdx % MELODY.length] / 4, 0.3, 'sine', 0.03);
-    melIdx++;
-  }, 280);
+// ----- séquenceur musical : mélodie + basse + percussions, 2 thèmes
+const THEMES = {
+  // thème champêtre en sol majeur
+  champ: {
+    bpm: 112,
+    lead: [392, 0, 494, 0, 587, 0, 494, 0, 659, 0, 587, 494, 440, 0, 0, 0,
+           392, 0, 494, 0, 587, 0, 784, 0, 740, 659, 587, 0, 494, 440, 392, 0],
+    bass: [98, 147, 123, 147, 98, 147, 165, 147],
+  },
+  // thème du boss en mi mineur, plus nerveux
+  boss: {
+    bpm: 148,
+    lead: [330, 0, 330, 392, 330, 0, 294, 0, 330, 0, 392, 440, 392, 330, 294, 0,
+           330, 0, 330, 392, 494, 0, 440, 392, 330, 0, 294, 0, 247, 0, 0, 0],
+    bass: [82, 82, 110, 82, 82, 82, 124, 110],
+  },
+};
+let currentTheme = 'champ';
+let musicStep = 0;
+
+function kickDrum() {
+  if (!actx) return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator();
+  const gn = actx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(140, t);
+  o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+  gn.gain.setValueAtTime(0.09, t);
+  gn.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+  o.connect(gn).connect(actx.destination);
+  o.start(t); o.stop(t + 0.14);
 }
+
+function musicTick() {
+  if (!actx || !game.musicOn) return;
+  if (game.state === 'title' || game.state === 'victory' || game.state === 'gameover') return;
+  const th = THEMES[currentTheme];
+  const lead = th.lead[musicStep % th.lead.length];
+  if (lead) beep(lead, 0.16, 'square', 0.028);
+  if (musicStep % 4 === 0) {
+    const b = th.bass[(musicStep >> 2) % th.bass.length];
+    if (b) beep(b, 0.3, 'triangle', 0.055);
+  }
+  if (musicStep % 4 === 2) beep(7000, 0.03, 'square', 0.012);  // charley
+  if (musicStep % 8 === 0) kickDrum();
+  musicStep++;
+}
+
+function setTheme(t) {
+  if (currentTheme === t && musicTimer) return;
+  currentTheme = t;
+  if (musicTimer) clearInterval(musicTimer);
+  musicTimer = setInterval(musicTick, 60000 / THEMES[t].bpm / 4);
+}
+
+function startMusic() { setTheme(currentTheme); }
 
 // ---------------------------------------------------------- entrées
 const keys = {};
@@ -304,13 +455,36 @@ const KEYMAP = {
 };
 const dirDown = dir => KEYMAP[dir].some(k => keys[k]);
 
-// contrôles tactiles (mobile) : joystick à gauche, boutons à droite
+// contrôles tactiles (mobile) : joystick à gauche, boutons à droite.
+// En portrait, le canvas s'agrandit d'une zone manette dédiée sous le jeu.
+let PAD_H = 0;
+let CANVAS_H = H;
 const touchUI = {
   enabled: false,
   joyId: null, joyX: 0, joyY: 0, vecX: 0, vecY: 0,
+  joyHome: { x: 120, y: H - 110 },
   btnA: { x: W - 95, y: H - 100, r: 56, label: 'ATT' },   // masse
   btnB: { x: W - 230, y: H - 70, r: 44, label: 'E' },     // action
 };
+
+function layout(canvas) {
+  const touchCap = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  const portrait = window.innerHeight > window.innerWidth;
+  PAD_H = touchCap && portrait ? 420 : 0;
+  CANVAS_H = H + PAD_H;
+  if (canvas.height !== CANVAS_H) canvas.height = CANVAS_H;
+  if (PAD_H) {
+    // manette dédiée sous le jeu : tout est gros et fixe
+    touchUI.joyHome = { x: 230, y: H + PAD_H / 2 };
+    touchUI.btnA = { x: W - 180, y: H + PAD_H / 2 - 30, r: 105, label: 'ATT' };
+    touchUI.btnB = { x: W - 430, y: H + PAD_H / 2 + 90, r: 80, label: 'E' };
+  } else {
+    // paysage : boutons en surimpression discrète
+    touchUI.joyHome = { x: 120, y: H - 110 };
+    touchUI.btnA = { x: W - 95, y: H - 100, r: 56, label: 'ATT' };
+    touchUI.btnB = { x: W - 230, y: H - 70, r: 44, label: 'E' };
+  }
+}
 
 // ---------------------------------------------------------- aides monde
 function tileAt(grid, px, py) {
@@ -374,9 +548,21 @@ function spawnScreen(key) {
   if (key === BOSS_SCREEN && game.quest >= 2 && !game.bossDefeated) {
     enemies = [];
     boss = makeBoss();
-    toast('LE SANGLIER ROYAL !', 3);
-    sfx.hurt();
+    sfx.roar();
+    game.shake = 0.4;
+    if (!game.bossIntro) {
+      game.bossIntro = true;
+      save();
+      openDialog('Sanglier Royal', [
+        'GROOOOINK !!! Encore un de ces poseurs de clôture !',
+        'Cette vallée est MON territoire. Tes piquets ridicules ne m’arrêteront pas !',
+        'Approche, petit humain en polo jaune. Je vais te montrer ce qu’on fait des grillages par ici !',
+      ]);
+    } else {
+      toast('LE SANGLIER ROYAL !', 3);
+    }
   }
+  setTheme(boss ? 'boss' : 'champ');
 }
 
 // ---------------------------------------------------------- interactions
@@ -401,13 +587,19 @@ function talkToDaniel() {
       player.piquets += 10;
       toast('+10 piquets ! Objectif : 3 chantiers');
       sfx.pickup();
+      save();
     });
   } else if (game.quest === 1) {
     const left = CHANTIERS.filter(c => !chantierDone(c)).map(c => c.name);
-    openDialog('Daniel Moquet', [
+    const lines = game.chantiersDone === 0 ? [
       'Alors, ça avance ? Il reste : ' + left.join(', ') + '.',
       'Cherche les bottes de piquets dans la nature si tu en manques. Les taupes en lâchent aussi parfois !',
-    ]);
+      'Et va saluer les clients sur place : un client content, c’est un client qui régale !',
+    ] : [
+      'Déjà ' + game.chantiersDone + ' chantier(s) bouclé(s) ! Tu me rappelles moi à ton âge.',
+      'Il reste : ' + left.join(', ') + '. Les clients t’attendent sur place.',
+    ];
+    openDialog('Daniel Moquet', lines);
   } else if (game.quest === 2) {
     openDialog('Daniel Moquet', [
       'Rémi, c’est la catastrophe ! Le SANGLIER ROYAL saccage la plaine du nord !',
@@ -420,6 +612,24 @@ function talkToDaniel() {
 
 function chantierDone(c) {
   return c.holes.every((_, i) => game.filled.has(c.id + ':' + i));
+}
+
+function talkToClient(c) {
+  const done = chantierDone(CHANTIERS[c.chantier]);
+  if (!done) {
+    openDialog(c.name, c.before);
+  } else if (!game.rewards.has(c.id)) {
+    openDialog(c.name, c.after, () => {
+      game.rewards.add(c.id);
+      player.maxHp += 2;
+      player.hp = player.maxHp;
+      toast('+1 coeur de vie maximum !', 3);
+      sfx.fanfare();
+      save();
+    });
+  } else {
+    openDialog(c.name, c.thanks);
+  }
 }
 
 function tryPlant() {
@@ -438,6 +648,8 @@ function tryPlant() {
           game.chantiersDone++;
           sfx.fanfare();
           toast('Chantier terminé : ' + c.name + ' !', 3.5);
+          const client = CLIENTS.find(cl => cl.chantier === c.id);
+          if (client) toast('Allez voir ' + client.name + ' !', 3.5);
           if (game.chantiersDone >= CHANTIERS.length) {
             game.quest = 2;
             setTimeout(() => {
@@ -449,6 +661,7 @@ function tryPlant() {
             }, 900);
           }
         }
+        save();
         return true;
       }
     }
@@ -463,7 +676,38 @@ function interact() {
     const dy = player.y - (DANIEL_POS.y * TILE + TILE / 2);
     if (dx * dx + dy * dy < 90 * 90) { talkToDaniel(); return; }
   }
+  // un client ?
+  for (const c of CLIENTS) {
+    if (c.screen !== game.screen) continue;
+    const dx = player.x - (c.x * TILE + TILE / 2);
+    const dy = player.y - (c.y * TILE + TILE / 2);
+    if (dx * dx + dy * dy < 90 * 90) { talkToClient(c); return; }
+  }
   tryPlant();
+}
+
+// E à portée de quelque chose ? (pour le libellé du bouton tactile)
+function interactTarget() {
+  if (game.screen === DANIEL_POS.screen) {
+    const dx = player.x - (DANIEL_POS.x * TILE + TILE / 2);
+    const dy = player.y - (DANIEL_POS.y * TILE + TILE / 2);
+    if (dx * dx + dy * dy < 90 * 90) return 'parler';
+  }
+  for (const c of CLIENTS) {
+    if (c.screen !== game.screen) continue;
+    const dx = player.x - (c.x * TILE + TILE / 2);
+    const dy = player.y - (c.y * TILE + TILE / 2);
+    if (dx * dx + dy * dy < 90 * 90) return 'parler';
+  }
+  const ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
+  for (const ch of CHANTIERS) {
+    if (ch.screen !== game.screen) continue;
+    for (let i = 0; i < ch.holes.length; i++) {
+      if (Math.abs(ch.holes[i][0] - ptx) + Math.abs(ch.holes[i][1] - pty) <= 1 &&
+          !game.filled.has(ch.id + ':' + i)) return 'planter';
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------- combat
@@ -502,8 +746,10 @@ function killEnemy(e) {
     game.bossDefeated = true;
     game.quest = 3;
     sfx.bigFanfare();
+    sfx.roar();
     game.shake = 0.5;
-    setTimeout(() => { game.state = 'victory'; }, 1600);
+    game.victoryT = 1.4;
+    save();
     return;
   }
   enemies = enemies.filter(x => x !== e);
@@ -553,16 +799,18 @@ function updatePlayer(dt) {
   player.attackCd = Math.max(0, player.attackCd - dt);
   player.invuln = Math.max(0, player.invuln - dt);
 
-  // transitions d'écran
+  // transitions d'écran : la collision bloque le joueur à ~12px du bord,
+  // le seuil doit donc être atteignable (14px)
   let [sx, sy] = game.screen.split(',').map(Number);
   let moved = false;
-  if (player.x < 6 && sx > 0) { sx--; player.x = W - 8; moved = true; }
-  else if (player.x > W - 6 && sx < WORLD_W - 1) { sx++; player.x = 8; moved = true; }
-  else if (player.y < 6 && sy > 0) { sy--; player.y = ROWS * TILE - 8; moved = true; }
-  else if (player.y > ROWS * TILE - 6 && sy < WORLD_H - 1) { sy++; player.y = 8; moved = true; }
+  if (player.x < 14 && sx > 0) { sx--; player.x = W - 16; moved = true; }
+  else if (player.x > W - 14 && sx < WORLD_W - 1) { sx++; player.x = 16; moved = true; }
+  else if (player.y < 12 && sy > 0) { sy--; player.y = ROWS * TILE - 14; moved = true; }
+  else if (player.y > ROWS * TILE - 12 && sy < WORLD_H - 1) { sy++; player.y = 14; moved = true; }
   if (moved) {
     game.screen = sx + ',' + sy;
     spawnScreen(game.screen);
+    save();
   }
 
   // ramassages
@@ -574,6 +822,7 @@ function updatePlayer(dt) {
       player.piquets += 3;
       toast('+3 piquets !');
       sfx.pickup();
+      save();
     }
   }
   drops = drops.filter(d => {
@@ -684,10 +933,20 @@ function update(dt) {
   game.toasts = game.toasts.filter(t => (t.t -= dt) > 0);
 
   if (game.state === 'title') {
-    if (pressed.has('e') || pressed.has('E') || pressed.has('Enter') || pressed.has(' ')) {
+    if (pressed.has('n') || pressed.has('N')) newGame();
+    else if (pressed.has('e') || pressed.has('E') || pressed.has('Enter') || pressed.has(' ')) {
       game.state = 'play';
       spawnScreen(game.screen);
-      toast('Allez voir Daniel Moquet ! (E pour parler)', 4);
+      if (game.quest === 0) {
+        openDialog('Narrateur', [
+          'La Vallée Verte. Ses haies taillées, ses allées impeccables, ses clôtures tirées au cordeau...',
+          'Mais depuis quelques lunes, taupes, sangliers et ronces sèment le chaos. Les clients désespèrent.',
+          'Heureusement, l’agence Daniel Moquet a son arme secrète : RÉMI, le meilleur poseur de clôture du pays.',
+          'Sa masse est lourde, son grillage est tendu, son polo est jaune. L’aventure commence.',
+        ], () => toast('Allez voir Daniel Moquet ! (E pour parler)', 4));
+      } else {
+        toast('Partie reprise — bon chantier !', 3);
+      }
     }
   } else if (game.state === 'dialog') {
     if (pressed.has('e') || pressed.has('E') || pressed.has('Enter') || pressed.has(' ')) {
@@ -705,8 +964,30 @@ function update(dt) {
     if (pressed.has('e') || pressed.has('E') || pressed.has('Enter')) interact();
     updatePlayer(dt);
     updateEnemies(dt);
+    if (game.victoryT > 0) {
+      game.victoryT -= dt;
+      if (game.victoryT <= 0) {
+        openDialog('Daniel Moquet (radio)', [
+          '*Bzzt* Rémi ?! On a entendu le boucan jusqu’à l’agence... TU AS RÉUSSI ?!',
+          '*Bzzt* Le Sanglier Royal est parti la queue entre les pattes ! La vallée est sauvée !',
+          '*Bzzt* Reviens au QG, champion. Ce soir, c’est tournée de cidre — et demain... de nouvelles allées à signer !',
+        ], () => { game.state = 'victory'; });
+      }
+    }
   } else if (game.state === 'gameover') {
-    if (pressed.has('e') || pressed.has('E') || pressed.has('Enter')) location.reload();
+    if (pressed.has('e') || pressed.has('E') || pressed.has('Enter')) {
+      // on repart au QG en gardant la progression
+      player.hp = player.maxHp;
+      player.invuln = 2;
+      game.screen = PLAYER_START.screen;
+      player.x = PLAYER_START.x * TILE + TILE / 2;
+      player.y = PLAYER_START.y * TILE + TILE / 2;
+      spawnScreen(game.screen);
+      game.state = 'play';
+      toast('Rémi reprend le chantier !', 3);
+    }
+  } else if (game.state === 'victory') {
+    if (pressed.has('n') || pressed.has('N')) newGame();
   }
   if (pressed.has('m') || pressed.has('M')) {
     game.musicOn = !game.musicOn;
@@ -993,6 +1274,70 @@ function drawDaniel() {
   }
 }
 
+function drawClient(c) {
+  if (c.screen !== game.screen) return;
+  const x = c.x * TILE + TILE / 2;
+  const y = HUD_H + c.y * TILE + TILE / 2;
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(x, y + 16, 12, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#4a4a4a';
+  ctx.fillRect(x - 8, y + 2, 7, 14);
+  ctx.fillRect(x + 1, y + 2, 7, 14);
+  ctx.fillStyle = c.habit;
+  ctx.fillRect(x - 10, y - 12, 20, 16);
+  ctx.fillStyle = '#e8a96e';
+  ctx.fillRect(x - 13, y - 9, 4, 11);
+  ctx.fillRect(x + 9, y - 9, 4, 11);
+  ctx.fillRect(x - 7, y - 26, 14, 14);
+  ctx.fillStyle = c.tete;
+  ctx.fillRect(x - 8, y - 28, 16, 6);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(x - 4, y - 20, 3, 3);
+  ctx.fillRect(x + 2, y - 20, 3, 3);
+  // bulle "!" quand une récompense attend
+  const pending = chantierDone(CHANTIERS[c.chantier]) && !game.rewards.has(c.id);
+  if (pending || (!chantierDone(CHANTIERS[c.chantier]) && game.quest >= 1)) {
+    ctx.fillStyle = pending ? '#3fd13a' : '#ffe14d';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(pending ? '♥' : '!', x, y - 34 + Math.sin(game.time * 4) * 3);
+  }
+}
+
+// minimap 3x3 : écran courant, chantiers, boss, QG
+function drawMinimap() {
+  const cell = 17, mx = W - 3 * cell - 12, my = HUD_H + 10;
+  ctx.save();
+  ctx.globalAlpha = 0.82;
+  ctx.fillStyle = '#10180c';
+  ctx.fillRect(mx - 4, my - 4, 3 * cell + 8, 3 * cell + 8);
+  for (let sy = 0; sy < WORLD_H; sy++) {
+    for (let sx = 0; sx < WORLD_W; sx++) {
+      const key = sx + ',' + sy;
+      let col = '#2c4423';
+      const ch = CHANTIERS.find(c => c.screen === key);
+      if (ch) col = chantierDone(ch) ? '#2f9e2b' : '#b08c1e';
+      if (key === DANIEL_POS.screen) col = '#5a5044';
+      if (key === BOSS_SCREEN && game.quest >= 2 && !game.bossDefeated)
+        col = Math.sin(game.time * 6) > 0 ? '#c0392b' : '#5a1d14';
+      ctx.fillStyle = col;
+      ctx.fillRect(mx + sx * cell + 1, my + sy * cell + 1, cell - 2, cell - 2);
+      if (key === game.screen) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(mx + sx * cell + 1, my + sy * cell + 1, cell - 2, cell - 2);
+        ctx.fillStyle = '#f5c400';
+        const px = mx + sx * cell + (player.x / W) * cell;
+        const py = my + sy * cell + (player.y / (ROWS * TILE)) * cell;
+        ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
+      }
+    }
+  }
+  ctx.restore();
+}
+
 function drawEnemy(e) {
   const x = e.x, y = HUD_H + e.y;
   const flash = e.hitT > 0;
@@ -1110,16 +1455,16 @@ function drawHUD() {
   }
   // piquets
   ctx.fillStyle = '#8a5a2e';
-  ctx.fillRect(110, 8, 8, 24);
+  ctx.fillRect(185, 8, 8, 24);
   ctx.fillStyle = '#6b4523';
-  ctx.fillRect(108, 6, 12, 5);
+  ctx.fillRect(183, 6, 12, 5);
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 16px monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('x ' + player.piquets, 126, 27);
+  ctx.fillText('x ' + player.piquets, 200, 27);
   // chantiers
   ctx.fillStyle = '#f5c400';
-  ctx.fillText('Chantiers : ' + game.chantiersDone + '/' + CHANTIERS.length, 210, 27);
+  ctx.fillText('Chantiers : ' + game.chantiersDone + '/' + CHANTIERS.length, 270, 27);
   // nom de l'écran
   ctx.fillStyle = '#cbb89a';
   ctx.textAlign = 'right';
@@ -1129,10 +1474,10 @@ function drawHUD() {
   ctx.fillStyle = '#9a8a72';
   ctx.font = '13px monospace';
   const obj = game.quest === 0 ? 'Parlez à Daniel (E)'
-    : game.quest === 1 ? 'Clôturez les chantiers (E sur les trous)'
-    : game.quest === 2 ? 'Vainquez le Sanglier Royal au nord !'
+    : game.quest === 1 ? 'Clôturez les 3 chantiers'
+    : game.quest === 2 ? 'Le boss vous attend au nord !'
     : 'Mission accomplie !';
-  ctx.fillText(obj, W / 2 + 60, 27);
+  ctx.fillText(obj, W / 2 + 90, 27);
 }
 
 function drawHeart(x, y, color, half) {
@@ -1254,12 +1599,24 @@ function drawTitle() {
   ctx.fillRect(-4, -20, 3, 3);
   ctx.fillRect(2, -20, 3, 3);
   ctx.restore();
-  ctx.fillStyle = Math.sin(game.time * 4) > 0 ? '#ffe14d' : '#9a8a72';
-  ctx.font = 'bold 20px monospace';
-  ctx.fillText('Appuyez sur E pour pointer au chantier', W / 2, 560);
-  ctx.fillStyle = '#6a5a48';
-  ctx.font = '13px monospace';
-  ctx.fillText('ZQSD bouger — ESPACE masse — E action — M musique', W / 2, 600);
+  if (game.hasSave && game.quest > 0) {
+    ctx.fillStyle = Math.sin(game.time * 4) > 0 ? '#ffe14d' : '#9a8a72';
+    ctx.font = 'bold 20px monospace';
+    ctx.fillText('E / toucher l’écran : continuer la partie', W / 2, 560);
+    ctx.strokeStyle = '#9a8a72';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(W / 2 - 170, 578, 340, 42);
+    ctx.fillStyle = '#cbb89a';
+    ctx.font = 'bold 17px monospace';
+    ctx.fillText('N / ici : nouvelle partie', W / 2, 605);
+  } else {
+    ctx.fillStyle = Math.sin(game.time * 4) > 0 ? '#ffe14d' : '#9a8a72';
+    ctx.font = 'bold 20px monospace';
+    ctx.fillText('E ou toucher l’écran : pointer au chantier', W / 2, 560);
+    ctx.fillStyle = '#6a5a48';
+    ctx.font = '13px monospace';
+    ctx.fillText('ZQSD bouger — ESPACE masse — E action — M musique', W / 2, 600);
+  }
 }
 
 function drawEnd(win) {
@@ -1282,7 +1639,10 @@ function drawEnd(win) {
     ctx.fillText('Employé du mois : RÉMI, poseur de clôture', W / 2, 400);
     ctx.fillStyle = '#9a8a72';
     ctx.font = '14px monospace';
-    ctx.fillText('Merci d’avoir joué ! (F5 pour rejouer)', W / 2, 480);
+    ctx.fillText('Merci d’avoir joué ! N : nouvelle partie', W / 2, 480);
+    ctx.fillStyle = '#6a5a48';
+    ctx.font = '13px monospace';
+    ctx.fillText('Scénario, pose et grillage : Rémi — Production : Daniel Moquet signe vos clôtures', W / 2, 530);
   } else {
     ctx.fillStyle = '#e23b3b';
     ctx.font = 'bold 46px monospace';
@@ -1292,12 +1652,16 @@ function drawEnd(win) {
     ctx.fillText('Rémi est rentré à l’atelier se soigner...', W / 2, 310);
     ctx.fillStyle = '#ffe14d';
     ctx.font = 'bold 20px monospace';
-    ctx.fillText('Appuyez sur E pour reprendre le chantier', W / 2, 380);
+    ctx.fillText('E / toucher l’écran : reprendre au QG', W / 2, 380);
+    ctx.fillStyle = '#9a8a72';
+    ctx.font = '14px monospace';
+    ctx.fillText('(la progression est conservée)', W / 2, 410);
   }
 }
 
 function draw() {
-  ctx.clearRect(0, 0, W, H);
+  ctx.clearRect(0, 0, W, CANVAS_H);
+  if (PAD_H) drawPadBackdrop();
   if (game.state === 'title') { drawTitle(); return; }
 
   ctx.save();
@@ -1317,6 +1681,7 @@ function draw() {
     }
   }
   drawDaniel();
+  for (const c of CLIENTS) drawClient(c);
   for (const e of enemies) drawEnemy(e);
   drawBoss();
   // projectiles (épines)
@@ -1332,6 +1697,7 @@ function draw() {
   ctx.restore();
 
   drawHUD();
+  drawMinimap();
 
   // toasts
   let ty = HUD_H + 18;
@@ -1350,32 +1716,57 @@ function draw() {
   if (game.state === 'gameover') drawEnd(false);
   if (game.state === 'victory') drawEnd(true);
   if (touchUI.enabled && game.state === 'play') drawTouchControls();
+  else if (PAD_H && game.state !== 'play') {
+    ctx.fillStyle = '#9a8a72';
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Touchez l’écran pour continuer', W / 2, H + PAD_H / 2);
+  }
+}
+
+function drawPadBackdrop() {
+  // zone manette en mode portrait
+  ctx.fillStyle = '#221b12';
+  ctx.fillRect(0, H, W, PAD_H);
+  ctx.fillStyle = '#f5c400';
+  ctx.fillRect(0, H, W, 4);
+  ctx.fillStyle = '#2f9e2b';
+  ctx.fillRect(0, H + 4, W, 2);
 }
 
 function drawTouchControls() {
+  const joyR = PAD_H ? 90 : 52;
+  const knobR = PAD_H ? 42 : 24;
   ctx.save();
-  ctx.globalAlpha = 0.4;
-  // joystick : à l'endroit du doigt, sinon zone indicative
-  const jx = touchUI.joyId !== null ? touchUI.joyX : 120;
-  const jy = touchUI.joyId !== null ? touchUI.joyY : H - 110;
-  ctx.fillStyle = '#000';
-  ctx.beginPath(); ctx.arc(jx, jy, 52, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = PAD_H ? 0.85 : 0.4;
+  // joystick : à l'endroit du doigt, sinon position de repos
+  const jx = touchUI.joyId !== null ? touchUI.joyX : touchUI.joyHome.x;
+  const jy = touchUI.joyId !== null ? touchUI.joyY : touchUI.joyHome.y;
+  ctx.fillStyle = PAD_H ? '#0f0c08' : '#000';
+  ctx.beginPath(); ctx.arc(jx, jy, joyR, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(jx, jy, 52, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(jx, jy, joyR, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = '#f5c400';
   ctx.beginPath();
-  ctx.arc(jx + touchUI.vecX * 34, jy + touchUI.vecY * 34, 24, 0, Math.PI * 2);
+  ctx.arc(jx + touchUI.vecX * (joyR - knobR - 4), jy + touchUI.vecY * (joyR - knobR - 4), knobR, 0, Math.PI * 2);
   ctx.fill();
-  // boutons
-  for (const [b, col] of [[touchUI.btnA, '#c0392b'], [touchUI.btnB, '#2f9e2b']]) {
+  // boutons — le bouton E s'allume quand une action est possible
+  const target = interactTarget();
+  const bLabel = target === 'parler' ? 'PARLER' : target === 'planter' ? 'PIQUET' : 'E';
+  for (const [b, col, label] of [[touchUI.btnA, '#c0392b', 'ATT'], [touchUI.btnB, target ? '#3fd13a' : '#2f9e2b', bLabel]]) {
     ctx.fillStyle = col;
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#fff';
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 20px monospace';
+    ctx.font = 'bold ' + (PAD_H ? 30 : 18) + 'px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(b.label, b.x, b.y + 7);
+    ctx.fillText(label, b.x, b.y + (PAD_H ? 11 : 7));
+  }
+  if (target && PAD_H) {
+    ctx.fillStyle = '#f5c400';
+    ctx.font = 'bold 22px monospace';
+    ctx.fillText(target === 'parler' ? 'Quelqu’un veut vous parler !' : 'Un trou à piquet est à portée !', W / 2, H + 40);
   }
   ctx.restore();
 }
@@ -1384,6 +1775,8 @@ function drawTouchControls() {
 function init() {
   const canvas = document.getElementById('game');
   ctx = canvas.getContext('2d');
+  game.hasSave = load();
+  window.__remi = { game, player };   // accès debug/tests
 
   window.addEventListener('keydown', e => {
     ensureAudio();
@@ -1394,11 +1787,15 @@ function init() {
   window.addEventListener('keyup', e => { keys[e.key] = false; });
 
   // --- tactile (mobile)
+  layout(canvas);
+  window.addEventListener('resize', () => layout(canvas));
+  window.addEventListener('orientationchange', () => setTimeout(() => layout(canvas), 200));
+
   const canvasPos = t => {
     const r = canvas.getBoundingClientRect();
-    return { x: (t.clientX - r.left) * (W / r.width), y: (t.clientY - r.top) * (H / r.height) };
+    return { x: (t.clientX - r.left) * (W / r.width), y: (t.clientY - r.top) * (CANVAS_H / r.height) };
   };
-  const inBtn = (p, b) => Math.hypot(p.x - b.x, p.y - b.y) < b.r + 14;
+  const inBtn = (p, b) => Math.hypot(p.x - b.x, p.y - b.y) < b.r + 16;
 
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
@@ -1406,10 +1803,16 @@ function init() {
     touchUI.enabled = true;
     for (const t of e.changedTouches) {
       const p = canvasPos(t);
+      if (game.state === 'title') {
+        // bouton « nouvelle partie » en bas du titre
+        if (game.hasSave && p.x > W / 2 - 170 && p.x < W / 2 + 170 && p.y > 575 && p.y < 625) pressed.add('n');
+        else pressed.add('e');
+        continue;
+      }
       if (game.state !== 'play') { pressed.add('e'); continue; }
       if (inBtn(p, touchUI.btnA)) pressed.add(' ');
       else if (inBtn(p, touchUI.btnB)) pressed.add('e');
-      else if (p.x < W * 0.55 && touchUI.joyId === null) {
+      else if ((p.x < W * 0.55 || p.y > H) && touchUI.joyId === null) {
         touchUI.joyId = t.identifier;
         touchUI.joyX = p.x; touchUI.joyY = p.y;
         touchUI.vecX = 0; touchUI.vecY = 0;
@@ -1483,6 +1886,31 @@ function selfTest() {
   const dg = MAPS[DANIEL_POS.screen];
   if (!walkable(dg, DANIEL_POS.x, DANIEL_POS.y)) { console.error('Daniel bloqué'); errors++; }
   if (!walkable(MAPS[PLAYER_START.screen], PLAYER_START.x, PLAYER_START.y)) { console.error('spawn joueur bloqué'); errors++; }
+  for (const c of CLIENTS) {
+    if (!walkable(MAPS[c.screen], c.x, c.y)) { console.error('client bloqué', c.name); errors++; }
+  }
+
+  // les ouvertures entre écrans adjacents doivent être traversables des deux côtés
+  for (let sy = 0; sy < WORLD_H; sy++) {
+    for (let sx = 0; sx < WORLD_W; sx++) {
+      if (sx < WORLD_W - 1) {
+        for (let y = 6; y <= 8; y++) {
+          if (!walkable(MAPS[sx + ',' + sy], COLS - 1, y) || !walkable(MAPS[(sx + 1) + ',' + sy], 0, y)) {
+            console.error('ouverture est-ouest bloquée entre', sx + ',' + sy, 'et', (sx + 1) + ',' + sy, 'rangée', y);
+            errors++;
+          }
+        }
+      }
+      if (sy < WORLD_H - 1) {
+        for (let x = 11; x <= 13; x++) {
+          if (!walkable(MAPS[sx + ',' + sy], x, ROWS - 1) || !walkable(MAPS[sx + ',' + (sy + 1)], x, 0)) {
+            console.error('ouverture nord-sud bloquée entre', sx + ',' + sy, 'et', sx + ',' + (sy + 1), 'colonne', x);
+            errors++;
+          }
+        }
+      }
+    }
+  }
 
   // connectivité : depuis le spawn joueur, tout le monde doit être atteignable
   const seen = new Set();
@@ -1507,6 +1935,7 @@ function selfTest() {
   };
   CHANTIERS.forEach(c => c.holes.forEach(([x, y], i) => reach(c.screen, x, y, c.name + ' trou ' + i)));
   PICKUPS.forEach(([s, x, y]) => reach(s, x, y, 'piquets'));
+  CLIENTS.forEach(c => reach(c.screen, c.x, c.y, c.name));
   reach(DANIEL_POS.screen, DANIEL_POS.x, DANIEL_POS.y, 'Daniel');
   reach(BOSS_SCREEN, 11, 6, 'arène du boss');
   Object.keys(SPAWNS).forEach(s => SPAWNS[s].forEach(([t, x, y]) => reach(s, x, y, 'spawn ' + t)));

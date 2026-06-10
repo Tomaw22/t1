@@ -20,6 +20,11 @@ npx serve .        # ou : python3 -m http.server
 | ESPACE (ou J) | Coup de masse |
 | E (ou Entrée) | Parler / planter un piquet / valider |
 | M | Musique on/off |
+| N | Nouvelle partie (depuis le titre) |
+
+Sur **mobile** : en portrait, une manette dédiée s'affiche sous le jeu
+(joystick + boutons ATT/E) ; en paysage, les contrôles sont en surimpression.
+Le bouton E s'allume en vert quand une action est possible.
 
 ## L'aventure
 
@@ -29,7 +34,14 @@ npx serve .        # ou : python3 -m http.server
    - Le Verger de Mme Bichon (sud-ouest)
    - Le Potager de M. Grelin (est)
    - Le Ponton du Marais (sud-est)
-3. **Vainquez le Sanglier Royal** dans la Plaine du Nord.
+3. **Retournez voir chaque client** une fois son chantier fini : leur petit plat
+   maison vous donne un **cœur de vie supplémentaire**.
+4. **Vainquez le Sanglier Royal** dans la Plaine du Nord.
+
+La progression est **sauvegardée automatiquement** (localStorage) : on peut
+fermer l'onglet et reprendre plus tard. La minimap en haut à droite indique
+les chantiers (jaune = à faire, vert = terminé) et le boss (rouge clignotant).
+La musique change de thème quand le boss apparaît.
 
 ## Le monde (9 écrans)
 
